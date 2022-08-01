@@ -38,7 +38,8 @@ def place_conditional_order():
 symbol = 'ETHUSDT'
 amount = 0.01
 leverage = 3
-
+order_id = session_auth.get_active_order(
+            symbol= symbol)['result']['data'][0]['order_id']
 # print('CCXT Version:', ccxt.__version__)
 # exchange.verbose = True
 
@@ -96,20 +97,31 @@ while True:
         print("actual percent: ", round((short_entry_price / actual_bid_price) - 1, 2))
         print("actual_bid_price * 0.997: ", round(actual_bid_price * 0.997, 2))
 
-        if actual_bid_price < short_entry_price * 0.993:
-            bybitAPI.session_auth.set_trading_stop(
+        # set up a trailing stop loss, after pass 3 percent
+        if actual_bid_price < int(short_entry_price * 0.99):
+            session_auth.replace_active_order(
                 symbol=symbol,
-                side="Sell",
-                stop_loss=float(round(short_entry_price * 0.993, 2)
-                                ))
+                # side="Buy",
+                trailing_stop=float(short_entry_price * 0.01 / leverage),
+                order_id= order_id
+            )
 
-        elif actual_bid_price < int(round(short_entry_price * 0.997, 2)):
-            # bybitAPI.session_auth.set_trading_stop(symbol, "sell", short_entry_price, 0.997)
-            bybitAPI.session_auth.set_trading_stop(
+        elif actual_bid_price < short_entry_price * 0.9933:
+            session_auth.replace_active_order(
                 symbol=symbol,
-                side="Sell",
-                stop_loss=float(round(short_entry_price * 0.997, 2)
-                                ))
+                # side="Sell",
+                stop_loss=float(round(short_entry_price * 0.9933, 2)),
+                order_id=order_id
+            )
+
+        elif actual_bid_price < float(round(short_entry_price * 0.997, 2)):
+            # bybitAPI.session_auth.replace_active_order(symbol, "sell", short_entry_price, 0.997)
+            session_auth.replace_active_order(
+                symbol=symbol,
+                # side="Sell",
+                stop_loss=float(round(short_entry_price * 0.997, 2)),
+                order_id=order_id
+            )
         else:
             pass
 
@@ -122,14 +134,15 @@ while True:
             side="Sell",
             qty=amount,
             price=short_price,  # 8100
-            base_price=short_price,  # 16100
-            stop_px=short_price - 1,  # 8150
+            base_price=short_price+1,  # 16100
+            stop_px=short_price ,  # 8150
             time_in_force="GoodTillCancel",
             trigger_by="LastPrice",
             reduce_only=False,
             close_on_trigger=False,
             stop_loss=short_stop_loss,
-            sell_leverage=leverage
+            sell_leverage=leverage,
+            tp_sl_mode="Full"
         )
 
     elif "Sell" in bybitAPI.get_conditional_order():
@@ -141,14 +154,15 @@ while True:
                 side="Sell",
                 qty=amount,
                 price=short_price,  # 8100
-                base_price=short_price,  # 16100
-                stop_px=short_price - 1,  # 8150
+                base_price=short_price + 1,  # 16100
+                stop_px=short_price,  # 8150
                 time_in_force="GoodTillCancel",
                 trigger_by="LastPrice",
                 reduce_only=False,
                 close_on_trigger=False,
                 stop_loss=short_stop_loss,
-                sell_leverage=leverage
+                sell_leverage=leverage,
+                tp_sl_mode="Full"
             )
     else:
         pass
@@ -195,70 +209,83 @@ while True:
         long_entry_price = long_position['entry_price']
         print('entry_price: ', long_entry_price)
         print('actual_bid_price: ', actual_bid_price)
-        print("actual percent: ", round((long_entry_price / actual_bid_price) - 1, 2))
 
-        if actual_bid_price > int(long_entry_price * 1.0066):  # 1664
-            # bybitAPI.session_auth.set_trading_stop(symbol=symbol, side="Buy", entry_price=long_entry_price,
-            # percent= 1.006)
-
-            bybitAPI.session_auth.set_trading_stop(
+        # set up a trailing stop loss, after pass 3 percent
+        if actual_bid_price > int(long_entry_price * 1.009):
+            session_auth.replace_active_order(
                 symbol=symbol,
-                side="Buy",
+                # side="Buy",
+                trailing_stop=float(long_entry_price*0.01/leverage),
+                order_id= order_id
+
+            )
+        elif actual_bid_price > int(long_entry_price * 1.0066):  # 1664
+            #set up a new SL
+            session_auth.replace_active_order(
+                symbol=symbol,
+                # side="Buy",
                 stop_loss=float(round(long_entry_price * 1.006, 2)),
+                order_id=order_id
             )
 
-        elif actual_bid_price > int(long_entry_price * 1.003):  # 1658
-            percent = 1.003
-            # bybitAPI.session_auth.set_trading_stop(symbol=symbol, side="Buy", entry_price=long_entry_price,
-            # percent=1.003)
-            bybitAPI.session_auth.set_trading_stop(
+        elif actual_bid_price > int(long_entry_price * 1.003):
+            session_auth.replace_active_order(
                 symbol=symbol,
-                side="Buy",
-                stop_loss=float(round(long_entry_price * 1.003, 2)
-                                ))
-        else:
-            # bybitAPI.set_trading_stop(symbol=symbol, side="Buy", entry_price=long_entry_price, percent= 0.996)
-            pass
+                # side="Buy",
+                stop_loss=float(round(long_entry_price * 1.003, 2)),
+                order_id=order_id
+            )
 
+        else:
+            continue
+
+    # checking if there is open long position
     elif "Buy" not in bybitAPI.get_conditional_order():
-        # TODO: make a LONG order
+        # place a LONG conditional order
         session_auth.place_conditional_order(
             symbol=symbol,
             order_type="Limit",
             side="Buy",
             qty=amount,
             price=long_price,  # 8100
-            base_price=long_price,  # 16100
-            stop_px=long_price + 1,  # 8150
+            base_price=long_price-1,  # 16100
+            stop_px=long_price,  # 8150
             time_in_force="GoodTillCancel",
             trigger_by="LastPrice",
             reduce_only=False,
             close_on_trigger=False,
             stop_loss=long_stop_loss,
-            buy_leverage=leverage
+            buy_leverage=leverage,
+            tp_sl_mode="Full"
         )
 
     elif "Buy" in bybitAPI.get_conditional_order():
         if long_price not in bybitAPI.get_price_conditional_orders():
             bybitAPI.cancel_conditional_order(symbol)
+            #Change conditional long order
             session_auth.place_conditional_order(
                 symbol=symbol,
                 order_type="Limit",
                 side="Buy",
                 qty=amount,
                 price=long_price,  # 8100
-                base_price=long_price,  # 16100
-                stop_px=long_price + 1,  # 8150
+                base_price=long_price - 1,  # 16100
+                stop_px=long_price,  # 8150
                 time_in_force="GoodTillCancel",
                 trigger_by="LastPrice",
                 reduce_only=False,
                 close_on_trigger=False,
                 stop_loss=long_stop_loss,
-                buy_leverage=leverage
+                buy_leverage=leverage,
+                tp_sl_mode="Full"
             )
     else:
         pass
 
-    time.sleep(1)
+    time.sleep(2)
 
 # TODO: google request time out
+
+#Co już próbowałem
+#    place conditional order +set trading stop
+#
