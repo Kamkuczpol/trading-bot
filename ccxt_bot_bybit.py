@@ -4,6 +4,25 @@ import config
 import bybitAPI
 from pybit import usdt_perpetual
 
+
+def place_conditional_order(symbol, side, qty, base_price, stop_px):
+    return session_auth.place_conditional_order(
+        symbol=symbol,
+        order_type="Market",
+        side=side,
+        qty=qty,
+        # price=1652,
+        base_price=base_price,
+        stop_px=stop_px,
+        # stop_loss= stop_loss,
+        # tp_sl_mode="Full",
+        time_in_force="GoodTillCancel",
+        trigger_by="LastPrice",
+        reduce_only=False,
+        close_on_trigger=False
+    )
+
+
 # ========= connect with exchange ========
 exchange = ccxt.bybit({
     'apiKey': config.bybit_apiKey,
@@ -17,29 +36,10 @@ session_auth = usdt_perpetual.HTTP(
     api_secret=config.bybit_secretKey
 )
 
-
-def place_conditional_order():
-    session_auth.place_conditional_order(
-        symbol=symbol,
-        order_type="Limit",
-        side="Buy",
-        qty=10,
-        price=0.74,  # 8100
-        base_price=0.73,  # 16100
-        stop_px=0.75,  # 8150
-        time_in_force="GoodTillCancel",
-        trigger_by="LastPrice",
-        reduce_only=False,
-        close_on_trigger=False,
-        stop_loss=0.6
-    )
-
-
 symbol = 'ETHUSDT'
 amount = 0.01
 leverage = 3
-order_id = session_auth.get_active_order(
-            symbol= symbol)['result']['data'][0]['order_id']
+
 # print('CCXT Version:', ccxt.__version__)
 # exchange.verbose = True
 
@@ -55,7 +55,24 @@ while True:
     # TODO ================ fetch the bars ================
     print("\n\n================ fetch the bars ================")
     ohlcv = exchange.fetch_ohlcv(symbol, '1h', limit=8)
-    # pprint(ohlcv[::-1])
+
+    # TODO ================ find the open position ================
+    print("Check the open position")
+    open_position = bybitAPI.check_open_position()
+    print('open_position: ', open_position)
+
+    # TODO ================ check if position is in Full ================
+    print("Check if position is in a Full mode")
+    try:
+        if open_position['tp_sl_mode'] != "Full":
+            session_auth.full_partial_position_tp_sl_switch(
+                symbol=symbol,
+                tp_sl_mode="Full"
+            )
+        else:
+            print('Open position is in Full mode')
+    except TypeError:
+        print('pass type error')
 
     # TODO ================ find the last lowest price ================
     print("\n\n================ find the last lowest price ================ ")
@@ -68,102 +85,66 @@ while True:
 
     for i in range(len(low_prices) - 1):
         try:
-            if low_prices[i] > low_prices[i + 1] < low_prices[i + 2]:
-                the_lowest_price.append(low_prices[i + 1])
-            elif low_prices[i] < low_prices[i + 1]:
+            # if low_prices[i] > low_prices[i + 1] < low_prices[i + 2]:
+            #     the_lowest_price.append(low_prices[i + 1])
+            if low_prices[i] < low_prices[i + 1]:
                 the_lowest_price.append(low_prices[i])
         except IndexError:
             the_lowest_price.append(low_prices[-1])
 
-    print("\nThe lowest price: ", the_lowest_price[0])
+    print("\nThe lowest price is ", the_lowest_price[0])
     short_price = the_lowest_price[0] - 1
 
-    print("\nSHORT PRICE: ", short_price)
-    short_stop_loss = int(round(short_price * 1.0033, 2))
-    short_take_profit = int(short_price * 0.997)
+    print("\nSHORT PRICE is ", short_price)
+    short_stop_loss = int(round(short_price * 1.0066, 2))
     print("\nshort stop loss price: ", short_stop_loss)
 
-    print("================ open short position ================")
+    print("================ check open short position ================")
     # TODO: ================check open short position================
-    is_open = bybitAPI.check_open_position()
-    if 'Sell' in is_open:
-        # TODO: Set up a new stop loss for SHORT POSITION
-        print("\n ================ TODO: Set up a new stop loss for SHORT POSITION ================")
-        short_position = bybitAPI.get_open_positions(symbol, side='Sell')
-        print('short_position: ', short_position)
-        short_entry_price = short_position['entry_price']
-        print('entry_price: ', short_entry_price)
-        print('actual_bid_price: ', actual_bid_price)
-        print("actual percent: ", round((short_entry_price / actual_bid_price) - 1, 2))
-        print("actual_bid_price * 0.997: ", round(actual_bid_price * 0.997, 2))
 
-        # set up a trailing stop loss, after pass 3 percent
-        if actual_bid_price < int(short_entry_price * 0.99):
-            session_auth.replace_active_order(
-                symbol=symbol,
-                # side="Buy",
-                trailing_stop=float(short_entry_price * 0.01 / leverage),
-                order_id= order_id
-            )
+    print("Check is open position is SHORT")
+    if open_position is not None:
+        if open_position['side'] == 'Sell':
+            # TODO: Set up a new stop loss for SHORT POSITION
+            print("\n ================ TODO: Set up a new stop loss for SHORT POSITION ================")
+            print('short_position: ', open_position)
+            short_entry_price = open_position['entry_price']
+            print('entry_price: ', short_entry_price)
+            print('actual_bid_price: ', actual_bid_price)
+            print("actual percent: ", float(round(short_entry_price / actual_bid_price) - 1), 2)
+            print("1 percent profit with 3 leverage= ",
+                  int(short_entry_price * 0.997))
+            print("stop loss of open position", open_position['stop_loss'])
 
-        elif actual_bid_price < short_entry_price * 0.9933:
-            session_auth.replace_active_order(
-                symbol=symbol,
-                # side="Sell",
-                stop_loss=float(round(short_entry_price * 0.9933, 2)),
-                order_id=order_id
-            )
-
-        elif actual_bid_price < float(round(short_entry_price * 0.997, 2)):
-            # bybitAPI.session_auth.replace_active_order(symbol, "sell", short_entry_price, 0.997)
-            session_auth.replace_active_order(
-                symbol=symbol,
-                # side="Sell",
-                stop_loss=float(round(short_entry_price * 0.997, 2)),
-                order_id=order_id
-            )
-        else:
-            pass
-
-    elif "Sell" not in bybitAPI.get_conditional_order():
-        print(" make a new order")
-        # TODO: ================make an SHORT order================
-        session_auth.place_conditional_order(
-            symbol=symbol,
-            order_type="Limit",
-            side="Sell",
-            qty=amount,
-            price=short_price,  # 8100
-            base_price=short_price+1,  # 16100
-            stop_px=short_price ,  # 8150
-            time_in_force="GoodTillCancel",
-            trigger_by="LastPrice",
-            reduce_only=False,
-            close_on_trigger=False,
-            stop_loss=short_stop_loss,
-            sell_leverage=leverage,
-            tp_sl_mode="Full"
-        )
-
-    elif "Sell" in bybitAPI.get_conditional_order():
+            if actual_bid_price < int(short_entry_price * 0.997):
+                print("profit higher that 1%")
+                bybitAPI.set_up_stop_loss(open_position, short_entry_price,symbol, "Sell", stop_loss=0.997, trailing_stop=0.0041)
+                if actual_bid_price < int(short_entry_price - (short_entry_price * 0.005 / leverage)):
+                    stop_loss_half_percent = int(short_stop_loss - (short_entry_price * 0.005 / leverage))
+                    print("profit higher that 0,5%")
+                    bybitAPI.set_up_stop_loss(open_position, short_entry_price,symbol, "Sell", stop_loss=stop_loss_half_percent, trailing_stop=0.0041)
+                else:
+                    try:
+                        session_auth.set_trading_stop(
+                            symbol=symbol,
+                            side="Sell",
+                            stop_loss=int(short_entry_price * 1.0033),
+                            p_r_qty=amount
+                        )
+                    except:
+                        pass
+    elif "Sell" not in bybitAPI.get_conditional_order(symbol):
+        try:
+            print(" make a new order")
+            # TODO: ================make an SHORT order================
+            place_conditional_order(symbol, "Sell", amount, short_price + 1, short_price)
+        except:
+            print("There was error with get_conditional_order's definition")
+    elif "Sell" in bybitAPI.get_conditional_order(symbol):
         if short_price not in bybitAPI.get_price_conditional_orders():
             bybitAPI.cancel_conditional_order(symbol)
-            session_auth.place_conditional_order(
-                symbol=symbol,
-                order_type="Limit",
-                side="Sell",
-                qty=amount,
-                price=short_price,  # 8100
-                base_price=short_price + 1,  # 16100
-                stop_px=short_price,  # 8150
-                time_in_force="GoodTillCancel",
-                trigger_by="LastPrice",
-                reduce_only=False,
-                close_on_trigger=False,
-                stop_loss=short_stop_loss,
-                sell_leverage=leverage,
-                tp_sl_mode="Full"
-            )
+            place_conditional_order(symbol=symbol, side="Sell", qty=amount, base_price=short_price + 1,
+                                    stop_px=short_price)
     else:
         pass
 
@@ -179,9 +160,9 @@ while True:
 
     for i in range(len(high_price) - 1):
         try:
-            if high_price[i] > high_price[i + 1]:
-                the_highest_price.append(high_price[i])
-            elif high_price[i] < high_price[i + 1] > high_price[i + 2]:
+            # if high_price[i] > high_price[i + 1]:
+            #     the_highest_price.append(high_price[i])
+            if high_price[i] < high_price[i + 1] > high_price[i + 2]:
                 the_highest_price.append(high_price[i + 1])
         except IndexError:
             if high_price[i] < high_price[i + 1]:
@@ -192,100 +173,74 @@ while True:
     print("\nLONG PRICE: ", long_price)
 
     # create a stop loss
-    long_stop_loss = int(long_price * 0.996)
-    long_take_profit = int(long_price * 1.0033)
-    print("\nStop loss price: ", long_stop_loss)
+    long_stop_loss = int(long_price * 0.993)
+    print("\nlong_stop_loss: ", long_stop_loss)
 
     print("================ Open Long position ================")
     # TODO: check is open long position
+    if open_position is not None:
+        if open_position['side'] == 'Buy':
+            # TODO: Check a new stop loss for LONG POSITION
+            print("\n ================ Check a new stop loss for LONG POSITION ================")
+            long_entry_price = open_position['entry_price']
+            print('entry_price: ', long_entry_price)
+            print('actual_bid_price: ', actual_bid_price)
 
-    is_open = bybitAPI.check_open_position()
-    if 'Buy' in is_open:
-        # TODO: Check a new stop loss for LONG POSITION
-        print("\n ================ Check a new stop loss for LONG POSITION ================")
-        long_position = bybitAPI.get_open_positions(symbol, side='Buy')
-        print('long_position: ', long_position)
-        print(type(long_position))
-        long_entry_price = long_position['entry_price']
-        print('entry_price: ', long_entry_price)
-        print('actual_bid_price: ', actual_bid_price)
+            if actual_bid_price > int(long_entry_price * 1.0034):
+                print("profit higher than 1%")
+                print("Check stop loss")
+                # TODO: Dodać if dla pybit.exceptions.InvalidRequestError: Not modified (ErrCode: 130127)
+                bybitAPI.set_up_stop_loss(open_position,
+                                      long_entry_price, symbol,
+                                      side="Buy",
+                                      stop_loss=1.0033,
+                                      trailing_stop=0.0041,)
+                if actual_bid_price > int(long_entry_price + (long_entry_price * 0.005 / leverage)):
+                    long_stop_loss_half_percent = int(long_entry_price - (long_entry_price * 0.005 / leverage))
+                    print("profit higher that 0,5%")
+                    bybitAPI.set_up_stop_loss(open_position, long_entry_price, symbol, "Buy",
+                                              stop_loss=long_stop_loss_half_percent, trailing_stop=0.0041)
 
-        # set up a trailing stop loss, after pass 3 percent
-        if actual_bid_price > int(long_entry_price * 1.009):
-            session_auth.replace_active_order(
-                symbol=symbol,
-                # side="Buy",
-                trailing_stop=float(long_entry_price*0.01/leverage),
-                order_id= order_id
-
-            )
-        elif actual_bid_price > int(long_entry_price * 1.0066):  # 1664
-            #set up a new SL
-            session_auth.replace_active_order(
-                symbol=symbol,
-                # side="Buy",
-                stop_loss=float(round(long_entry_price * 1.006, 2)),
-                order_id=order_id
-            )
-
-        elif actual_bid_price > int(long_entry_price * 1.003):
-            session_auth.replace_active_order(
-                symbol=symbol,
-                # side="Buy",
-                stop_loss=float(round(long_entry_price * 1.003, 2)),
-                order_id=order_id
-            )
-
-        else:
-            continue
-
-    # checking if there is open long position
-    elif "Buy" not in bybitAPI.get_conditional_order():
+                else:
+                    bybitAPI.check_stop_loss(open_position, symbol, "Buy", long_entry_price, 0.997)
+    # checking if there is open long order
+    elif "Buy" not in bybitAPI.get_conditional_order(symbol):
+        print("Checking conditional order")
         # place a LONG conditional order
-        session_auth.place_conditional_order(
+        place_conditional_order(
             symbol=symbol,
-            order_type="Limit",
             side="Buy",
             qty=amount,
-            price=long_price,  # 8100
-            base_price=long_price-1,  # 16100
-            stop_px=long_price,  # 8150
-            time_in_force="GoodTillCancel",
-            trigger_by="LastPrice",
-            reduce_only=False,
-            close_on_trigger=False,
-            stop_loss=long_stop_loss,
-            buy_leverage=leverage,
-            tp_sl_mode="Full"
+            base_price=long_price - 1,
+            stop_px=long_price
         )
-
-    elif "Buy" in bybitAPI.get_conditional_order():
+    elif "Buy" in bybitAPI.get_conditional_order(symbol):
         if long_price not in bybitAPI.get_price_conditional_orders():
             bybitAPI.cancel_conditional_order(symbol)
-            #Change conditional long order
-            session_auth.place_conditional_order(
+            # Change conditional long order
+            try:
+                place_conditional_order(
                 symbol=symbol,
-                order_type="Limit",
                 side="Buy",
                 qty=amount,
-                price=long_price,  # 8100
-                base_price=long_price - 1,  # 16100
-                stop_px=long_price,  # 8150
-                time_in_force="GoodTillCancel",
-                trigger_by="LastPrice",
-                reduce_only=False,
-                close_on_trigger=False,
-                stop_loss=long_stop_loss,
-                buy_leverage=leverage,
-                tp_sl_mode="Full"
+                base_price=long_price - 1,
+                stop_px=long_price,
             )
+            except:
+                pass
     else:
         pass
-
+    print("Break 2 seconds")
     time.sleep(2)
 
-# TODO: google request time out
+# TODO: zmniejszyć liczbę requestów, bo się wykrzacza jak mamy dwa otwarte pozycje
+# TODO: zrobić warunek dla short stop loss
 
-#Co już próbowałem
-#    place conditional order +set trading stop
-#
+# Co już próbowałem
+#    place conditional order + set trading stop
+#    Full  tp_sl_mode nie działa
+# replace_conditional_order z stop_order_id też nie działa.
+# replace_conditional_order
+# Nie moge cancel stop loss, bo nie mam id
+# nie mogę replace bo też nie mam id
+# Mógłbym zrobić full, potem zrobić cancel, przez trading-stop, a potem ustawić nowe.
