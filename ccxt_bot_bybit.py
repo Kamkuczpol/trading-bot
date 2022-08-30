@@ -24,6 +24,7 @@ def get_conditional_order(symbol):
     for order in session_auth.get_conditional_order(symbol= symbol)['result']['data']:
         if order['order_status'] == 'Untriggered':
            list_of_side_orders.append(order['side'])
+    print("Conditional orders: ", list_of_side_orders)
     return list_of_side_orders
 
 def check_stop_losses():
@@ -92,13 +93,14 @@ while True:
 
     for i in range(len(low_prices) - 1):
         try:
-            # if low_prices[i] > low_prices[i + 1] < low_prices[i + 2]:
-            #     the_lowest_price.append(low_prices[i + 1])
+            if low_prices[i] > low_prices[i + 1] < low_prices[i + 2]:
+                the_lowest_price.append(low_prices[i + 1])
             if low_prices[i] < low_prices[i + 1]:
                 the_lowest_price.append(low_prices[i])
         except IndexError:
             the_lowest_price.append(low_prices[-1])
 
+    print('the_lowest_prices: ', the_lowest_price)
     print("\nThe lowest price is ", the_lowest_price[0])
     short_price = the_lowest_price[0] - 1
 
@@ -118,23 +120,26 @@ while True:
                 print('short entry_price: ', short_entry_price)
                 print('actual_bid_price: ', actual_bid_price)
                 print("actual percent: ", float(round(short_entry_price / actual_bid_price) - 1), 2)
-                print("1 percent profit on short position with 3 leverage= ",
-                      int(short_entry_price * 0.997))
                 print("stop loss of open position", open_position['stop_loss'])
 
                 # We count a profit regardless of leverage
                 if actual_bid_price < int(short_entry_price - (short_entry_price * 0.01 / leverage)):
-                    print("profit higher that 1%")
-                    stop_loss = (short_entry_price * 0.01 / leverage)
-                    bybitAPI.set_up_stop_loss(open_position, short_entry_price, symbol, "Sell", stop_loss=stop_loss, trailing_stop=0.0041)
+                    print("profit higher than 1%")
+                    print( '1% Stop Loss= ', int(short_entry_price - (short_entry_price * 0.01 / leverage))
+                           )
+                    bybitAPI.set_up_stop_loss(open_position, short_entry_price, symbol, "Sell",
+                                              stop_loss=int(short_entry_price - (short_entry_price * 0.01 / leverage)))
                     check_stop_losses()
                 elif actual_bid_price < int(short_entry_price - (short_entry_price * 0.005 / leverage)):
-                    stop_loss_half_percent = int(short_entry_price - (short_entry_price * 0.005 / leverage))
-                    print("profit higher that 0,5%")
-                    bybitAPI.set_up_stop_loss(open_position, short_entry_price, symbol, "Sell", stop_loss=stop_loss_half_percent, trailing_stop=0.0041)
+                    print("profit higher than 0,5%")
+                    print("0,5% stop loss= ", int(short_entry_price - (short_entry_price * 0.005 / leverage)))
+                    bybitAPI.set_up_stop_loss(open_position, short_entry_price, symbol, "Sell",
+                                              stop_loss=int(short_entry_price - (short_entry_price * 0.005 / leverage)),
+                                              trailing_stop=int(short_entry_price*0.005/leverage))
                     check_stop_losses()
                 else:
-                    bybitAPI.check_stop_loss(open_position, symbol, "Sell", short_entry_price, 1.001)
+                    bybitAPI.set_up_stop_loss(open_position, symbol, "Sell", stop_loss=short_stop_loss+1,
+                                              trailing_stop=int(short_entry_price*0.005/leverage))
                     check_stop_losses()
         elif "Sell" not in get_conditional_order(symbol):
             try:
@@ -178,75 +183,82 @@ while True:
             if high_price[i] < high_price[i + 1]:
                 the_highest_price.append(high_price[i + 1])
 
-    print("\nthe_highest_price: ", the_highest_price[0])
+    print("\n The_highest_price: ", the_highest_price[0])
     long_price = the_highest_price[0] + 1
-    print("\nLONG PRICE: ", long_price)
+    print("\n LONG PRICE: ", long_price)
 
     # create a stop loss
     long_stop_loss = int(long_price * 0.999)
-    print("\nlong_stop_loss: ", long_stop_loss)
+    print("\n long_stop_loss: ", long_stop_loss)
 
     print("================ Open Long position ================")
-    # TODO: check is open long position
+    # check open long position
+
     try:
         if open_position is not None:
             if open_position['side'] == 'Buy':
-                #Check a new stop loss for LONG POSITION
-                print("\n ================ Check a new stop loss for LONG POSITION ================")
+                # Set up a new stop loss for SHORT POSITION
+                print("\n ================ Check a stop loss for LONG POSITION ================")
+                print('open LONG position: ', open_position)
                 long_entry_price = open_position['entry_price']
-                print('entry_price: ', long_entry_price)
+                print('long entry_price: ', long_entry_price)
                 print('actual_bid_price: ', actual_bid_price)
+                print("actual percent: ", float(round(long_entry_price / actual_bid_price) - 1), 2)
+                print("stop loss of open position", open_position['stop_loss'])
 
+                # We count a profit regardless of leverage
                 if actual_bid_price > int(long_entry_price + (long_entry_price * 0.01 / leverage)):
                     print("profit higher than 1%")
-                    bybitAPI.set_up_stop_loss(open_position, long_entry_price, symbol,
-                                          side="Buy",
-                                          stop_loss=int(long_entry_price + (long_entry_price * 0.01 / leverage)),
-                                          trailing_stop=0.0041,)
-                    check_stop_losses()
-                elif actual_bid_price > int(long_entry_price + (long_entry_price * 0.005 / leverage)):
-                    print("profit higher that 0,5%")
+                    print('1% Stop loss= ', int(long_entry_price + (long_entry_price * 0.01 / leverage))
+                          )
                     bybitAPI.set_up_stop_loss(open_position, long_entry_price, symbol, "Buy",
-                                              stop_loss=int(long_entry_price + (long_entry_price * 0.005 / leverage)),
-                                              trailing_stop=0.0041)
+                                              stop_loss=int(long_entry_price + (long_entry_price * 0.01 / leverage))
+                                              )
                     check_stop_losses()
 
+                elif actual_bid_price > int(long_entry_price + (long_entry_price * 0.005 / leverage)):
+                    print("profit higher than 0,5%")
+                    print("0,5% stop loss= ", int(long_entry_price + (long_entry_price * 0.005 / leverage))
+                          )
+                    bybitAPI.set_up_stop_loss(open_position, long_entry_price, symbol, "Buy",
+                                              stop_loss=int(long_entry_price + (long_entry_price * 0.005 / leverage)),
+                                              trailing_stop=int(long_entry_price * 0.005 / leverage)
+                                              )
+                    check_stop_losses()
                 else:
-                    bybitAPI.check_stop_loss(open_position, symbol, "Buy", long_entry_price, 0.999)
+                    session_auth.set_trading_stop(
+                        symbol=symbol,
+                        side= "Buy",
+                        stop_loss=int(long_entry_price - 1),
+                        trailing_stop=int(long_entry_price * 0.005 / leverage)
+                    )
+
                     check_stop_losses()
         # checking if there is open long order
         elif "Buy" not in get_conditional_order(symbol):
-            print("Checking conditional order")
-            # place a LONG conditional order
             try:
-                print(" make a new  LONG order")
-                #================make an SHORT order================
+                print(" make a new LONG order")
                 place_conditional_order(symbol, "Buy", amount, long_price - 1, long_price)
             except:
-                print("There was error with get_conditional_order's definition")
+                print("There was error with get_conditional_order's function")
         elif "Buy" in get_conditional_order(symbol):
-            if long_price not in bybitAPI.get_price_conditional_orders():
-                bybitAPI.cancel_conditional_order(symbol)
-                # Change conditional long order
-                try:
-                    place_conditional_order(
-                    symbol=symbol,
-                    side="Buy",
-                    qty=amount,
-                    base_price=long_price - 1,
-                    stop_px=long_price,
-                )
-                except:
+            try:
+                if long_price not in bybitAPI.get_price_conditional_orders():
+                    print("Make a conditional order with a new price")
+                    bybitAPI.cancel_conditional_order(symbol)
+                    place_conditional_order(symbol=symbol, side="Buy", qty=amount, base_price=long_price - 1,
+                                            stop_px=long_price)
+                else:
                     pass
+            except:
+                print("No need to change SL of Short order or there was error")
         else:
             pass
     except:
         print("There was error with long order or position")
-    print("Break 2 seconds")
-    time.sleep(2)
+    print("Break for 1 second")
+    time.sleep(1)
 
-# TODO: zmniejszyć liczbę requestów, bo się wykrzacza jak mamy dwa otwarte pozycje
-# TODO: zrobić warunek dla short stop loss
 
 # Co już próbowałem
 #    place conditional order + set trading stop
