@@ -4,7 +4,7 @@ import config
 from pybit import usdt_perpetual
 import logging
 
-from bybit import open_position, actual_bid_price, leverage
+from ByBitBot import open_position, actual_bid_price, leverage
 
 url_testnet = 'https://api-testnet.bybit.com'
 base_url = 'https://api.bybit.com'
@@ -96,12 +96,6 @@ def set_up_stop_loss(open_position, entry_price, symbol, side, stop_loss, traili
             )
     except:
         pass
-
-def check_open_position():
-    list_of_orders = []
-    for position in session_auth.my_position(symbol=symbol)['result']:
-        if position['size'] > 0:
-            return position
 
 '''def check_stop_loss(open_position,symbol, side, entry_price, percent):
     if open_position['stop_loss'] == int(entry_price * percent):
